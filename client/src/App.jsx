@@ -1,9 +1,30 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import ReactFlow, { Background, Controls, Panel } from "reactflow";
+import ReactFlow, {
+  Background,
+  Controls,
+  Panel,
+  applyNodeChanges,
+} from "reactflow"; // Добавляем applyNodeChanges
+import axios from "axios";
 
 import NodeComponent from "./NodeComponent";
 import "reactflow/dist/style.css";
 import "./App.css";
+
+// Backend API endpoints
+const API_ENDPOINTS = {
+  preprocess: "https://preprocess-service.onrender.com",
+  parse: "https://parce-service.onrender.com",
+  visualize: "https://visualize-service.onrender.com",
+};
+
+// Configure axios defaults (optional)
+const api = axios.create({
+  timeout: 10000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
 
 function App() {
   const [text, setText] = useState("");
@@ -23,41 +44,79 @@ function App() {
     visualize: false,
   });
 
-  // Мемоизируем nodeTypes
   const nodeTypes = useMemo(() => ({ customNode: NodeComponent }), []);
 
-  // Проверка доступности сервисов
   const checkServices = useCallback(async () => {
     const endpoints = [
-      { url: "http://localhost:3003/health", service: "preprocess" },
-      { url: "http://localhost:3001/health", service: "parse" },
-      { url: "http://localhost:3002/health", service: "visualize" },
+      { url: `${API_ENDPOINTS.preprocess}/health`, service: "preprocess" },
+      { url: `${API_ENDPOINTS.parse}/health`, service: "parse" },
+      { url: `${API_ENDPOINTS.visualize}/health`, service: "visualize" },
     ];
 
     const newStatus = { ...services };
 
     for (const { url, service } of endpoints) {
       try {
-        const response = await fetch(url, { method: "GET" });
-        newStatus[service] = response.ok;
+        const response = await api.get(url);
+        newStatus[service] = response.status === 200;
       } catch (e) {
         newStatus[service] = false;
       }
     }
 
     setServices(newStatus);
-
     return newStatus;
   }, [services]);
 
-  // FIXED: Use useEffect instead of useState for component mount logic
   useEffect(() => {
-    console.log("Current nodes:", nodes);
-    console.log("Current edges:", edges);
-    console.log("Node types:", nodeTypes);
-  }, [nodes, edges, nodeTypes]);
+    checkServices();
+  }, [checkServices]);
 
-  // Обработка предварительной обработки текста
+  // Обработчик изменения позиции узлов
+  const onNodesChange = useCallback(
+    (changes) => {
+      setNodes((nds) => applyNodeChanges(changes, nds));
+    },
+    [setNodes]
+  );
+
+  const handleExportGraphToClipboard = async () => {
+    try {
+      if (!nodes.length || !edges.length) {
+        setError("Нет графа для экспорта");
+        return;
+      }
+
+      const exportData = {
+        nodes: nodes.map((node) => ({
+          id: node.id,
+          label: node.data.label,
+          position: node.position, // Добавляем текущие позиции узлов
+        })),
+        edges: edges.map((edge) => ({
+          id: edge.id,
+          from: nodes.find((n) => n.id === edge.source).data.label,
+          to: nodes.find((n) => n.id === edge.target).data.label,
+        })),
+      };
+
+      const response = await api.post(
+        `${API_ENDPOINTS.visualize}/export-graph-image`,
+        exportData,
+        { responseType: "blob" }
+      );
+
+      const blob = new Blob([response.data], { type: "image/png" });
+      const item = new ClipboardItem({ "image/png": blob });
+      await navigator.clipboard.write([item]);
+
+      alert("Граф скопирован в буфер обмена! Вставьте в Word с помощью Ctrl+V");
+    } catch (error) {
+      console.error("Ошибка экспорта:", error);
+      setError("Ошибка при экспорте графа в буфер обмена");
+    }
+  };
+
   const handlePreprocessText = async () => {
     if (!text.trim()) {
       setError("Пожалуйста, введите текст для анализа");
@@ -65,47 +124,38 @@ function App() {
     }
 
     try {
+      setCleanedText(null);
+      setParsedData(null);
+      setNodes([]);
+      setEdges([]);
+
       setLoading((prev) => ({ ...prev, preprocess: true }));
       setError(null);
 
-      // Проверяем, доступен ли сервис предобработки
       if (!services.preprocess) {
-        // Если сервис недоступен, используем упрощенную локальную обработку
-        console.log(
-          "Сервис предобработки недоступен, используем локальную обработку"
+        throw new Error(
+          "Сервис предобработки текста недоступен. Пожалуйста, проверьте статус сервисов."
         );
-        setCleanedText(text.toLowerCase());
-        setLoading((prev) => ({ ...prev, preprocess: false }));
-        return;
       }
 
-      const response = await fetch("http://localhost:3003/preprocess-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      const response = await api.post(
+        `${API_ENDPOINTS.preprocess}/preprocess-text`,
+        { text }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Ошибка предобработки текста");
-      }
-
-      const { cleanedText, detectedFormats } = await response.json();
+      const { cleanedText, detectedFormats } = response.data;
 
       setCleanedText(cleanedText);
       console.log("Обнаруженные форматы:", detectedFormats);
     } catch (error) {
       console.error("Ошибка предобработки:", error);
-      setError(`Ошибка предобработки: ${error.message}`);
-
-      // Если произошла ошибка, используем исходный текст
-      setCleanedText(text);
+      const errorMessage = error.response?.data?.error || error.message;
+      setError(`Ошибка предобработки: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, preprocess: false }));
     }
   };
 
-  // Обработка парсинга текста
   const handleParseText = async () => {
     const textToProcess = cleanedText || text;
 
@@ -115,44 +165,40 @@ function App() {
     }
 
     try {
+      setNodes([]);
+      setEdges([]);
+
       setLoading((prev) => ({ ...prev, parse: true }));
       setError(null);
 
-      const response = await fetch("http://localhost:3001/parse-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: textToProcess }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Ошибка парсинга текста");
+      if (!services.parse) {
+        throw new Error(
+          "Сервис анализа связей недоступен. Пожалуйста, проверьте статус сервисов."
+        );
       }
 
-      const data = await response.json();
+      const response = await api.post(`${API_ENDPOINTS.parse}/parse-text`, {
+        text: textToProcess,
+      });
+
+      const data = response.data;
 
       if (!data.nodes || data.nodes.length === 0) {
-        setError(
+        throw new Error(
           "Не удалось найти связи в тексте. Попробуйте использовать другой формат описания связей."
         );
-        return;
       }
 
       setParsedData(data);
-
-      // Если сервис визуализации недоступен, сразу генерируем визуализацию локально
-      if (!services.visualize) {
-        generateLocalVisualization(data);
-      }
     } catch (error) {
       console.error("Ошибка парсинга:", error);
-      setError(`Ошибка разбора текста: ${error.message}`);
+      const errorMessage = error.response?.data?.error || error.message;
+      setError(`Ошибка разбора текста: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, parse: false }));
     }
   };
 
-  // Генерация визуализации
   const handleGenerateVisual = async () => {
     if (!parsedData || !parsedData.nodes || parsedData.nodes.length === 0) {
       setError("Нет данных для визуализации");
@@ -164,111 +210,29 @@ function App() {
       setError(null);
 
       if (!services.visualize) {
-        // Если сервис визуализации недоступен, используем локальную визуализацию
-        generateLocalVisualization(parsedData);
-        return;
+        throw new Error(
+          "Сервис визуализации недоступен. Пожалуйста, проверьте статус сервисов."
+        );
       }
 
-      const response = await fetch("http://localhost:3002/generate-visual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsedData),
-      });
+      const response = await api.post(
+        `${API_ENDPOINTS.visualize}/generate-visual`,
+        parsedData
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Ошибка визуализации");
-      }
+      const visualData = response.data;
 
-      const data = await response.json();
-
-      setNodes(data.nodes);
-      setEdges(data.edges);
+      setNodes(visualData.nodes.map((node) => ({ ...node, draggable: true }))); // Делаем узлы перетаскиваемыми
+      setEdges(visualData.edges);
     } catch (error) {
       console.error("Ошибка визуализации:", error);
-      setError(`Ошибка создания визуализации: ${error.message}`);
-
-      // В случае ошибки пытаемся создать визуализацию локально
-      generateLocalVisualization(parsedData);
+      const errorMessage = error.response?.data?.error || error.message;
+      setError(`Ошибка создания визуализации: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, visualize: false }));
     }
   };
 
-  // Локальная генерация визуализации (резервный вариант)
-  const generateLocalVisualization = (data) => {
-    if (!data || !data.nodes || !data.edges) {
-      console.error("Invalid data format for visualization:", data);
-      setError("Неверный формат данных для визуализации");
-      return;
-    }
-
-    // Create a map of label to id for quick lookups
-    const labelToIdMap = {};
-    data.nodes.forEach((node) => {
-      labelToIdMap[node.label] = String(node.id);
-    });
-
-    console.log("Label to ID map:", labelToIdMap);
-
-    // Create nodes with properly calculated connections
-    const flowNodes = data.nodes.map((node, index) => {
-      // Count connections for this node
-      const connectionCount = data.edges.filter(
-        (e) => e.from === node.label || e.to === node.label
-      ).length;
-
-      return {
-        id: String(node.id),
-        type: "customNode", // Ensure this matches the key in nodeTypes
-        position: {
-          x: 150 + (index % 3) * 250,
-          y: 150 + Math.floor(index / 3) * 200,
-        },
-        data: {
-          label: node.label,
-          connections: connectionCount,
-        },
-      };
-    });
-
-    // Create edges using the labelToIdMap for proper node references
-    const flowEdges = data.edges
-      .map((edge, index) => {
-        const sourceId = labelToIdMap[edge.from];
-        const targetId = labelToIdMap[edge.to];
-
-        if (!sourceId || !targetId) {
-          console.warn(`Edge ${index} has missing source or target:`, edge);
-          return null;
-        }
-
-        return {
-          id: `e${index}`,
-          source: sourceId,
-          target: targetId,
-          animated: true,
-          style: { stroke: "#555", strokeWidth: 2 },
-          markerEnd: {
-            type: "arrowclosed",
-          },
-        };
-      })
-      .filter(Boolean);
-
-    console.log("Generated nodes:", flowNodes);
-    console.log("Generated edges:", flowEdges);
-
-    // Set state only if we have valid nodes
-    if (flowNodes.length > 0) {
-      setNodes(flowNodes);
-      setEdges(flowEdges);
-    } else {
-      setError("Не удалось создать узлы для визуализации");
-    }
-  };
-
-  // Пример текста для быстрой вставки
   const insertExampleText = (example) => {
     switch (example) {
       case "simple":
@@ -339,7 +303,9 @@ function App() {
           <div className="action-buttons">
             <button
               onClick={handlePreprocessText}
-              disabled={loading.preprocess || !text.trim()}
+              disabled={
+                loading.preprocess || !text.trim() || !services.preprocess
+              }
               className={`action-button ${loading.preprocess ? "loading" : ""}`}
             >
               {loading.preprocess ? "Обработка..." : "Предобработка текста"}
@@ -347,7 +313,11 @@ function App() {
 
             <button
               onClick={handleParseText}
-              disabled={loading.parse || (!text.trim() && !cleanedText)}
+              disabled={
+                loading.parse ||
+                (!text.trim() && !cleanedText) ||
+                !services.parse
+              }
               className={`action-button ${loading.parse ? "loading" : ""}`}
             >
               {loading.parse ? "Анализ..." : "Анализировать связи"}
@@ -355,7 +325,7 @@ function App() {
 
             <button
               onClick={handleGenerateVisual}
-              disabled={loading.visualize || !parsedData}
+              disabled={loading.visualize || !parsedData || !services.visualize}
               className={`action-button ${loading.visualize ? "loading" : ""}`}
             >
               {loading.visualize ? "Создание..." : "Визуализировать"}
@@ -395,26 +365,19 @@ function App() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange} // Добавляем обработчик изменений узлов
                 fitView
                 attributionPosition="bottom-right"
                 onInit={(reactFlowInstance) => {
-                  console.log("ReactFlow initialized:", reactFlowInstance);
+                  console.log("ReactFlow initialized");
                   setTimeout(() => reactFlowInstance.fitView(), 100);
                 }}
               >
                 <Background color="#f8f8f8" gap={16} />
                 <Controls />
                 <Panel position="top-right" className="download-panel">
-                  <button
-                    onClick={() => {
-                      console.log("Current nodes:", nodes);
-                      console.log("Current edges:", edges);
-                      alert(
-                        "Функция экспорта будет добавлена в следующей версии"
-                      );
-                    }}
-                  >
-                    Экспорт графа
+                  <button onClick={handleExportGraphToClipboard}>
+                    Скопировать граф в буфер
                   </button>
                 </Panel>
               </ReactFlow>

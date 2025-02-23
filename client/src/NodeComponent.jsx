@@ -1,7 +1,6 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 
-// Styles inside the component
 const styles = {
   node: {
     padding: "10px 15px",
@@ -33,9 +32,6 @@ const styles = {
 };
 
 function NodeComponent({ data }) {
-  // Add console logging to debug data
-  console.log("Node data:", data);
-
   return (
     <div style={styles.node}>
       <Handle
