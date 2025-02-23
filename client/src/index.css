@@ -28,11 +28,3 @@ button:focus {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
-
-/* Для темной темы */
-@media (prefers-color-scheme: dark) {
-  body {
-    color: #fff;
-    background-color: #111;
-  }
-}
