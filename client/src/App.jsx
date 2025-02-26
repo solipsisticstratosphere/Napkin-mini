@@ -4,7 +4,7 @@ import ReactFlow, {
   Controls,
   Panel,
   applyNodeChanges,
-} from "reactflow"; // Добавляем applyNodeChanges
+} from "reactflow";
 import axios from "axios";
 
 import NodeComponent from "./NodeComponent";
@@ -72,7 +72,6 @@ function App() {
     checkServices();
   }, [checkServices]);
 
-  // Обработчик изменения позиции узлов
   const onNodesChange = useCallback(
     (changes) => {
       setNodes((nds) => applyNodeChanges(changes, nds));
@@ -83,7 +82,7 @@ function App() {
   const handleExportGraphToClipboard = async () => {
     try {
       if (!nodes.length || !edges.length) {
-        setError("Нет графа для экспорта");
+        setError("No graph to export");
         return;
       }
 
@@ -91,7 +90,7 @@ function App() {
         nodes: nodes.map((node) => ({
           id: node.id,
           label: node.data.label,
-          position: node.position, // Добавляем текущие позиции узлов
+          position: node.position,
         })),
         edges: edges.map((edge) => ({
           id: edge.id,
@@ -110,16 +109,16 @@ function App() {
       const item = new ClipboardItem({ "image/png": blob });
       await navigator.clipboard.write([item]);
 
-      alert("Граф скопирован в буфер обмена! Вставьте в Word с помощью Ctrl+V");
+      alert("Graph copied to clipboard! Paste in Word using Ctrl+V");
     } catch (error) {
-      console.error("Ошибка экспорта:", error);
-      setError("Ошибка при экспорте графа в буфер обмена");
+      console.error("Export error:", error);
+      setError("Error exporting graph to clipboard");
     }
   };
 
   const handlePreprocessText = async () => {
     if (!text.trim()) {
-      setError("Пожалуйста, введите текст для анализа");
+      setError("Please enter text for analysis");
       return;
     }
 
@@ -134,7 +133,7 @@ function App() {
 
       if (!services.preprocess) {
         throw new Error(
-          "Сервис предобработки текста недоступен. Пожалуйста, проверьте статус сервисов."
+          "Text preprocessing service is unavailable. Please check service status."
         );
       }
 
@@ -146,11 +145,11 @@ function App() {
       const { cleanedText, detectedFormats } = response.data;
 
       setCleanedText(cleanedText);
-      console.log("Обнаруженные форматы:", detectedFormats);
+      console.log("Detected formats:", detectedFormats);
     } catch (error) {
-      console.error("Ошибка предобработки:", error);
+      console.error("Preprocessing error:", error);
       const errorMessage = error.response?.data?.error || error.message;
-      setError(`Ошибка предобработки: ${errorMessage}`);
+      setError(`Preprocessing error: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, preprocess: false }));
     }
@@ -160,7 +159,7 @@ function App() {
     const textToProcess = cleanedText || text;
 
     if (!textToProcess.trim()) {
-      setError("Нет текста для анализа");
+      setError("No text for analysis");
       return;
     }
 
@@ -173,7 +172,7 @@ function App() {
 
       if (!services.parse) {
         throw new Error(
-          "Сервис анализа связей недоступен. Пожалуйста, проверьте статус сервисов."
+          "Relationship analysis service is unavailable. Please check service status."
         );
       }
 
@@ -185,15 +184,15 @@ function App() {
 
       if (!data.nodes || data.nodes.length === 0) {
         throw new Error(
-          "Не удалось найти связи в тексте. Попробуйте использовать другой формат описания связей."
+          "Could not find relationships in text. Try using a different relationship description format."
         );
       }
 
       setParsedData(data);
     } catch (error) {
-      console.error("Ошибка парсинга:", error);
+      console.error("Parsing error:", error);
       const errorMessage = error.response?.data?.error || error.message;
-      setError(`Ошибка разбора текста: ${errorMessage}`);
+      setError(`Text parsing error: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, parse: false }));
     }
@@ -201,7 +200,7 @@ function App() {
 
   const handleGenerateVisual = async () => {
     if (!parsedData || !parsedData.nodes || parsedData.nodes.length === 0) {
-      setError("Нет данных для визуализации");
+      setError("No data for visualization");
       return;
     }
 
@@ -211,7 +210,7 @@ function App() {
 
       if (!services.visualize) {
         throw new Error(
-          "Сервис визуализации недоступен. Пожалуйста, проверьте статус сервисов."
+          "Visualization service is unavailable. Please check service status."
         );
       }
 
@@ -222,12 +221,12 @@ function App() {
 
       const visualData = response.data;
 
-      setNodes(visualData.nodes.map((node) => ({ ...node, draggable: true }))); // Делаем узлы перетаскиваемыми
+      setNodes(visualData.nodes.map((node) => ({ ...node, draggable: true })));
       setEdges(visualData.edges);
     } catch (error) {
-      console.error("Ошибка визуализации:", error);
+      console.error("Visualization error:", error);
       const errorMessage = error.response?.data?.error || error.message;
-      setError(`Ошибка создания визуализации: ${errorMessage}`);
+      setError(`Visualization creation error: ${errorMessage}`);
     } finally {
       setLoading((prev) => ({ ...prev, visualize: false }));
     }
@@ -240,7 +239,7 @@ function App() {
         break;
       case "mixed":
         setText(
-          "яблоко связано с банан. tomato connects to carrot. связь: grape -> strawberry"
+          "apple is connected to banana. tomato connects to carrot. relationship: grape -> strawberry"
         );
         break;
       case "arrows":
@@ -251,16 +250,55 @@ function App() {
     }
   };
 
+  const wakeServices = useCallback(async () => {
+    const endpoints = [
+      { url: `${API_ENDPOINTS.preprocess}/health`, service: "preprocess" },
+      { url: `${API_ENDPOINTS.parse}/health`, service: "parse" },
+      { url: `${API_ENDPOINTS.visualize}/health`, service: "visualize" },
+    ];
+
+    setLoading((prev) => ({
+      ...prev,
+      preprocess: true,
+      parse: true,
+      visualize: true,
+    }));
+
+    try {
+      await Promise.all(
+        endpoints.map(({ url }) =>
+          api.get(url, { timeout: 5000 }).catch((e) => {
+            console.log(`Failed to wake service: ${url}`, e.message);
+            return null;
+          })
+        )
+      );
+
+      await checkServices();
+      alert("Service wake attempt completed");
+    } catch (error) {
+      console.error("Error waking services:", error);
+      setError("Failed to wake services");
+    } finally {
+      setLoading((prev) => ({
+        ...prev,
+        preprocess: false,
+        parse: false,
+        visualize: false,
+      }));
+    }
+  }, [checkServices]);
+
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>Анализатор связей в тексте</h1>
+        <h1>Text Relationship Analyzer</h1>
         <div className="service-status">
           {Object.entries(services).map(([key, status]) => (
             <div
               key={key}
               className={`status-indicator ${status ? "online" : "offline"}`}
-              title={`Сервис ${key}: ${status ? "доступен" : "недоступен"}`}
+              title={`Service ${key}: ${status ? "available" : "unavailable"}`}
             >
               {key}
             </div>
@@ -268,34 +306,39 @@ function App() {
           <button onClick={checkServices} className="refresh-button">
             ⟳
           </button>
+          <button
+            onClick={wakeServices}
+            disabled={loading.preprocess || loading.parse || loading.visualize}
+            className={`wake-button ${loading.preprocess ? "loading" : ""}`}
+          >
+            {loading.preprocess ? "Waking..." : "Wake Services"}
+          </button>
         </div>
       </header>
 
       <main className="app-main">
         <section className="input-section">
           <div className="text-input-container">
-            <label htmlFor="text-input">Введите описание связей:</label>
+            <label htmlFor="text-input">Enter relationship description:</label>
             <textarea
               id="text-input"
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Введите текст в любом формате, например:
+              placeholder="Enter text in any format, for example:
 - apple is connected to banana
-- яблоко связано с грушей
+- apple is connected to pear
 - A -> B
-- связь: grape -> strawberry"
+- relationship: grape -> strawberry"
               rows={5}
             />
             <div className="example-buttons">
-              <span>Примеры:</span>
+              <span>Examples:</span>
               <button onClick={() => insertExampleText("simple")}>
-                Простой
+                Simple
               </button>
-              <button onClick={() => insertExampleText("mixed")}>
-                Смешанный
-              </button>
+              <button onClick={() => insertExampleText("mixed")}>Mixed</button>
               <button onClick={() => insertExampleText("arrows")}>
-                Со стрелками
+                With Arrows
               </button>
             </div>
           </div>
@@ -308,7 +351,7 @@ function App() {
               }
               className={`action-button ${loading.preprocess ? "loading" : ""}`}
             >
-              {loading.preprocess ? "Обработка..." : "Предобработка текста"}
+              {loading.preprocess ? "Processing..." : "Preprocess Text"}
             </button>
 
             <button
@@ -320,7 +363,7 @@ function App() {
               }
               className={`action-button ${loading.parse ? "loading" : ""}`}
             >
-              {loading.parse ? "Анализ..." : "Анализировать связи"}
+              {loading.parse ? "Analyzing..." : "Analyze Relationships"}
             </button>
 
             <button
@@ -328,7 +371,7 @@ function App() {
               disabled={loading.visualize || !parsedData || !services.visualize}
               className={`action-button ${loading.visualize ? "loading" : ""}`}
             >
-              {loading.visualize ? "Создание..." : "Визуализировать"}
+              {loading.visualize ? "Creating..." : "Visualize"}
             </button>
           </div>
 
@@ -336,22 +379,22 @@ function App() {
 
           {cleanedText && cleanedText !== text && (
             <div className="preprocessed-text">
-              <h3>Предобработанный текст:</h3>
+              <h3>Preprocessed Text:</h3>
               <p>{cleanedText}</p>
             </div>
           )}
 
           {parsedData && parsedData.nodes && (
             <div className="parsed-data">
-              <h3>Обнаруженные элементы:</h3>
+              <h3>Detected Elements:</h3>
               <div className="elements-summary">
                 <div className="element-count">
                   <span className="count">{parsedData.nodes.length}</span>
-                  <span className="label">узлов</span>
+                  <span className="label">nodes</span>
                 </div>
                 <div className="element-count">
                   <span className="count">{parsedData.edges.length}</span>
-                  <span className="label">связей</span>
+                  <span className="label">relationships</span>
                 </div>
               </div>
             </div>
@@ -365,7 +408,7 @@ function App() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
-                onNodesChange={onNodesChange} // Добавляем обработчик изменений узлов
+                onNodesChange={onNodesChange}
                 fitView
                 attributionPosition="bottom-right"
                 onInit={(reactFlowInstance) => {
@@ -377,22 +420,22 @@ function App() {
                 <Controls />
                 <Panel position="top-right" className="download-panel">
                   <button onClick={handleExportGraphToClipboard}>
-                    Скопировать граф в буфер
+                    Copy Graph to Clipboard
                   </button>
                 </Panel>
               </ReactFlow>
             </div>
           ) : (
             <div className="no-visualization-message">
-              <p>Визуализация появится здесь после анализа данных</p>
+              <p>Visualization will appear here after data analysis</p>
               <p className="steps-hint">
-                1. Введите текст с описанием связей
+                1. Enter text with relationship description
                 <br />
-                2. Нажмите Предобработка текста
+                2. Click Preprocess Text
                 <br />
-                3. Нажмите Анализировать связи
+                3. Click Analyze Relationships
                 <br />
-                4. Нажмите Визуализировать
+                4. Click Visualize
               </p>
             </div>
           )}
