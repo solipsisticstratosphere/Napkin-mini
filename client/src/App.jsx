@@ -11,14 +11,12 @@ import NodeComponent from "./NodeComponent";
 import "reactflow/dist/style.css";
 import "./App.css";
 
-// Backend API endpoints
 const API_ENDPOINTS = {
   preprocess: "https://preprocess-service.onrender.com",
   parse: "https://parce-service.onrender.com",
   visualize: "https://visualize-service.onrender.com",
 };
 
-// Configure axios defaults (optional)
 const api = axios.create({
   timeout: 10000,
   headers: {
