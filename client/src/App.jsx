@@ -64,7 +64,8 @@ function App() {
 
     setServices(newStatus);
     return newStatus;
-  }, [services]);
+    // Remove 'services' from the dependency array
+  }, []);
 
   useEffect(() => {
     checkServices();
